@@ -1,218 +1,235 @@
 ---
-- name: "[{{ netbox_name }}] Deploy VyOS VM to Hyper-V"
+- name: "[{{ netbox_name }}] Reconcile VyOS VM against Netbox status"
   block:
 
-    ################## Set variables
-    - name: Set VM identity and sizing variables
-      ansible.builtin.set_fact:
-        vm_name: "{{ netbox_name }}"
-        vm_id: "{{ netbox_id }}"
-        vm_management_ip: "{{ primary_ip4 }}"
-        vm_interfaces: "{{ interfaces }}"
-        # Netbox stores memory in MB; hv_vm expects raw bytes.
-        # Falls back to the common VyOS spec (defaults/main.yml) when Netbox
-        # doesn't specify a value for this VM.
-        vm_memory: "{{ (memory | default(vyos_default_memory_mb) | int) * 1024 * 1024 }}"
-        vm_vcpus: "{{ vcpus | default(vyos_default_vcpus) | int }}"
+    - name: Report VM pending decommission (no action taken)
+      when: status.value == 'decommissioning'
+      ansible.builtin.debug:
+        msg: >-
+          {{ netbox_name }} is marked 'decommissioning' in Netbox.
+          No action taken — use the separate 'Destroy Appliance VM' job
+          to remove it, with an explicit target and confirmation.
 
-    - name: Set path variables
-      ansible.builtin.set_fact:
-        seed_build_dir: "{{ seed_build_base_dir }}/{{ vm_name }}-seed"
-        vm_dir: "{{ hyperv_vm_base_dir }}\\{{ vm_name }}"
-        vm_vhdx_path: "{{ hyperv_vm_base_dir }}\\{{ vm_name }}\\os.vhdx"
+    - name: Skip hosts that are neither staged nor pending decommission
+      when: status.value not in ['staged', 'decommissioning']
+      ansible.builtin.debug:
+        msg: "{{ netbox_name }} status is '{{ status.value }}' — nothing to reconcile."
 
-    ################# Build seed.iso and copy to Hyper-V host
+    - name: Provision if staged
+      when: status.value == 'staged'
+      block:
 
-    - name: Ensure the local build directory exists
-      delegate_to: localhost
-      ansible.builtin.file:
-        path: "{{ seed_build_dir }}"
-        state: directory
-        mode: "0700"
+        ################## Set variables
+        - name: Set VM identity and sizing variables
+          ansible.builtin.set_fact:
+            vm_name: "{{ netbox_name }}"
+            vm_id: "{{ netbox_id }}"
+            vm_management_ip: "{{ primary_ip4 }}"
+            vm_interfaces: "{{ interfaces }}"
+            # Netbox stores memory in MB; hv_vm expects raw bytes.
+            # Falls back to the common VyOS spec (defaults/main.yml) when Netbox
+            # doesn't specify a value for this VM.
+            vm_memory: "{{ (memory | default(vyos_default_memory_mb) | int) * 1024 * 1024 }}"
+            vm_vcpus: "{{ vcpus | default(vyos_default_vcpus) | int }}"
 
-    - name: Render meta-data
-      delegate_to: localhost
-      ansible.builtin.template:
-        src: meta-data.j2
-        dest: "{{ seed_build_dir }}/meta-data"
-        mode: "0600"
+        - name: Set path variables
+          ansible.builtin.set_fact:
+            seed_build_dir: "{{ seed_build_base_dir }}/{{ vm_name }}-seed"
+            vm_dir: "{{ hyperv_vm_base_dir }}\\{{ vm_name }}"
+            vm_vhdx_path: "{{ hyperv_vm_base_dir }}\\{{ vm_name }}\\os.vhdx"
 
-    - name: Render user-data
-      delegate_to: localhost
-      ansible.builtin.template:
-        src: user-data.j2
-        dest: "{{ seed_build_dir }}/user-data"
-        mode: "0600"
+        ################# Build seed.iso and copy to Hyper-V host
 
-    - name: Build the seed ISO (volume label CIDATA)
-      delegate_to: localhost
-      ansible.builtin.command:
-        cmd: >-
-          cloud-localds {{ seed_build_dir }}/seed.iso
-          {{ seed_build_dir }}/user-data {{ seed_build_dir }}/meta-data
+        - name: Ensure the local build directory exists
+          delegate_to: localhost
+          ansible.builtin.file:
+            path: "{{ seed_build_dir }}"
+            state: directory
+            mode: "0700"
 
-    - name: Ensure VM directory exists on Hyper-V host
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      ansible.windows.win_file:
-        path: "{{ vm_dir }}"
-        state: directory
+        - name: Render meta-data
+          delegate_to: localhost
+          ansible.builtin.template:
+            src: meta-data.j2
+            dest: "{{ seed_build_dir }}/meta-data"
+            mode: "0600"
 
-    - name: Copy the seed ISO to Hyper-V host
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      ansible.windows.win_copy:
-        src: "{{ seed_build_dir }}/seed.iso"
-        dest: "{{ vm_dir }}\\seed.iso"
+        - name: Render user-data
+          delegate_to: localhost
+          ansible.builtin.template:
+            src: user-data.j2
+            dest: "{{ seed_build_dir }}/user-data"
+            mode: "0600"
 
-    - name: Delete seed.iso build directory locally
-      delegate_to: localhost
-      ansible.builtin.file:
-        state: absent
-        path: "{{ seed_build_dir }}"
+        - name: Build the seed ISO (volume label CIDATA)
+          delegate_to: localhost
+          ansible.builtin.command:
+            cmd: >-
+              cloud-localds {{ seed_build_dir }}/seed.iso
+              {{ seed_build_dir }}/user-data {{ seed_build_dir }}/meta-data
 
-    - name: Confirm the golden image is present on the Hyper-V host
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      ansible.windows.win_stat:
-        path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
-      register: golden_image
+        - name: Ensure VM directory exists on Hyper-V host
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          ansible.windows.win_file:
+            path: "{{ vm_dir }}"
+            state: directory
 
-    - name: Fail early if golden image is missing
-      ansible.builtin.fail:
-        msg: "Golden image not found on {{ hyperv_target }}: {{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
-      when: not golden_image.stat.exists
+        - name: Copy the seed ISO to Hyper-V host
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          ansible.windows.win_copy:
+            src: "{{ seed_build_dir }}/seed.iso"
+            dest: "{{ vm_dir }}\\seed.iso"
 
-    - name: Confirm the seed.iso is present on the Hyper-V host
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      ansible.windows.win_stat:
-        path: "{{ vm_dir }}\\seed.iso"
-      register: seed_image
+        - name: Delete seed.iso build directory locally
+          delegate_to: localhost
+          ansible.builtin.file:
+            state: absent
+            path: "{{ seed_build_dir }}"
 
-    - name: Fail early if seed ISO copy did not land
-      ansible.builtin.fail:
-        msg: "Seed ISO not found on {{ hyperv_target }}: {{ vm_dir }}\\seed.iso"
-      when: not seed_image.stat.exists
+        - name: Confirm the golden image is present on the Hyper-V host
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          ansible.windows.win_stat:
+            path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+          register: golden_image
 
-    ################# Build and configure the VM
+        - name: Fail early if golden image is missing
+          ansible.builtin.fail:
+            msg: "Golden image not found on {{ hyperv_target }}: {{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+          when: not golden_image.stat.exists
 
-    - name: Create differencing disk from the golden image
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_vhd:
-        path: "{{ vm_vhdx_path }}"
-        state: present
-        vhd_type: Differencing
-        parent_path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+        - name: Confirm the seed.iso is present on the Hyper-V host
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          ansible.windows.win_stat:
+            path: "{{ vm_dir }}\\seed.iso"
+          register: seed_image
 
-    - name: Create the base VM
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_vm:
-        name: "{{ vm_name }}"
-        state: present
-        generation: "2"
-        memory_startup_bytes: "{{ vm_memory }}"
+        - name: Fail early if seed ISO copy did not land
+          ansible.builtin.fail:
+            msg: "Seed ISO not found on {{ hyperv_target }}: {{ vm_dir }}\\seed.iso"
+          when: not seed_image.stat.exists
 
-    - name: Set vCPU count
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_processor:
-        name: "{{ vm_name }}"
-        count: "{{ vm_vcpus }}"
+        ################# Build and configure the VM
 
-    - name: Attach the differencing disk
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_hard_disk:
-        vm_name: "{{ vm_name }}"
-        path: "{{ vm_vhdx_path }}"
-        state: present
-        controller_type: "{{ vyos_disk_controller_type }}"
+        - name: Create differencing disk from the golden image
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vhd:
+            path: "{{ vm_vhdx_path }}"
+            state: present
+            vhd_type: Differencing
+            parent_path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
 
-    - name: Add a blank DVD drive
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_dvd_drive:
-        vm_name: "{{ vm_name }}"
-        state: present
-      register: dvd_info
+        - name: Create the base VM
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vm:
+            name: "{{ vm_name }}"
+            state: present
+            generation: "2"
+            memory_startup_bytes: "{{ vm_memory }}"
 
-    - name: Attach and mount the seed ISO
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_dvd_drive:
-        vm_name: "{{ vm_name }}"
-        controller_number: "{{ dvd_info.controller_number }}"
-        controller_location: "{{ dvd_info.controller_location }}"
-        path: "{{ vm_dir }}\\seed.iso"
-        state: mounted
+        - name: Set vCPU count
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_processor:
+            name: "{{ vm_name }}"
+            count: "{{ vm_vcpus }}"
 
-    # Cannot set name on the first adapter — it must keep the default name
-    # or Hyper-V creates a second, unnamed adapter instead of reusing it.
-    - name: Connect eth0 to management switch
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_network_adapter:
-        vm_name: "{{ vm_name }}"
-        switch_name: "{{ vyos_mgmt_switch }}"
-        state: present
+        - name: Attach the differencing disk
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_hard_disk:
+            vm_name: "{{ vm_name }}"
+            path: "{{ vm_vhdx_path }}"
+            state: present
+            controller_type: "{{ vyos_disk_controller_type }}"
 
-    # A name IS required here, or this overwrites the default-named adapter
-    # instead of adding a second one.
-    - name: Connect eth1 to the external switch
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_network_adapter:
-        name: "eth1"
-        vm_name: "{{ vm_name }}"
-        switch_name: "{{ vyos_wan_switch }}"
-        state: present
+        - name: Add a blank DVD drive
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_dvd_drive:
+            vm_name: "{{ vm_name }}"
+            state: present
+          register: dvd_info
 
-    # Default boot priority is PXE; must be corrected for a Gen2 VM to boot
-    # from the differencing disk.
-    - name: Configure Secure Boot (off) and boot order for Gen2 VM
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_vm_boot:
-        name: "{{ vm_name }}"
-        secure_boot: false
-        boot_order:
-          - SCSI
-          - DVD
+        - name: Attach and mount the seed ISO
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_dvd_drive:
+            vm_name: "{{ vm_name }}"
+            controller_number: "{{ dvd_info.controller_number }}"
+            controller_location: "{{ dvd_info.controller_location }}"
+            path: "{{ vm_dir }}\\seed.iso"
+            state: mounted
 
-    - name: Start the VM
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_vm_state:
-        name: "{{ vm_name }}"
-        state: running
-      notify: "vm started"
+        # Cannot set name on the first adapter — it must keep the default name
+        # or Hyper-V creates a second, unnamed adapter instead of reusing it.
+        - name: Connect eth0 to management switch
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_network_adapter:
+            vm_name: "{{ vm_name }}"
+            switch_name: "{{ vyos_mgmt_switch }}"
+            state: present
 
-    - name: Flush handlers so SSH readiness is confirmed before continuing
-      ansible.builtin.meta: flush_handlers
+        # A name IS required here, or this overwrites the default-named adapter
+        # instead of adding a second one.
+        - name: Connect eth1 to the external switch
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_network_adapter:
+            name: "eth1"
+            vm_name: "{{ vm_name }}"
+            switch_name: "{{ vyos_wan_switch }}"
+            state: present
 
-    - name: Eject the seed ISO on the Hyper-V host
-      delegate_to: "{{ hyperv_target }}"
-      delegate_facts: true
-      microsoft.hyperv.hv_dvd_drive:
-        vm_name: "{{ vm_name }}"
-        controller_number: "{{ dvd_info.controller_number }}"
-        controller_location: "{{ dvd_info.controller_location }}"
-        state: ejected
+        # Default boot priority is PXE; must be corrected for a Gen2 VM to boot
+        # from the differencing disk.
+        - name: Configure Secure Boot (off) and boot order for Gen2 VM
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vm_boot:
+            name: "{{ vm_name }}"
+            secure_boot: false
+            boot_order:
+              - SCSI
+              - DVD
 
-    - name: Update Netbox status from staged to active
-      delegate_to: localhost
-      when: netbox_status_update_enabled
-      netbox.netbox.netbox_virtual_machine:
-        netbox_url: "{{ lookup('env', 'NETBOX_API') }}"
-        netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
-        validate_certs: false
-        data:
-          name: "{{ vm_name }}"
-          status: active
-        state: present
+        - name: Start the VM
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vm_state:
+            name: "{{ vm_name }}"
+            state: running
+          notify: "vm started"
+
+        - name: Flush handlers so SSH readiness is confirmed before continuing
+          ansible.builtin.meta: flush_handlers
+
+        - name: Eject the seed ISO on the Hyper-V host
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_dvd_drive:
+            vm_name: "{{ vm_name }}"
+            controller_number: "{{ dvd_info.controller_number }}"
+            controller_location: "{{ dvd_info.controller_location }}"
+            state: ejected
+
+        - name: Update Netbox status from staged to active
+          delegate_to: localhost
+          when: netbox_status_update_enabled
+          netbox.netbox.netbox_virtual_machine:
+            netbox_url: "{{ lookup('env', 'NETBOX_API') }}"
+            netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+            validate_certs: false
+            data:
+              name: "{{ vm_name }}"
+              status: active
+            state: present
 
   rescue:
     - name: "[{{ vm_name | default(netbox_name) }}] Clean up partially-created VM after failure"
