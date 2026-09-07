@@ -3,12 +3,53 @@
   block:
 
     - name: Report VM pending decommission (no action taken)
-      when: status.value == 'decommissioning'
+      when: status.value == 'decommissioning' and not (confirm_destroy | default(false) | bool)
       ansible.builtin.debug:
         msg: >-
           {{ netbox_name }} is marked 'decommissioning' in Netbox.
           No action taken — use the separate 'Destroy Appliance VM' job
           to remove it, with an explicit target and confirmation.
+
+    - name: Destroy if decommission is explicitly confirmed
+      when: status.value == 'decommissioning' and confirm_destroy | default(false) | bool
+      block:
+
+        - name: Set VM identity and path variables
+          ansible.builtin.set_fact:
+            vm_name: "{{ netbox_name }}"
+            vm_vhdx_path: "{{ hyperv_vm_base_dir }}\\{{ netbox_name }}\\os.vhdx"
+
+        - name: Stop the VM
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vm_state:
+            name: "{{ vm_name }}"
+            state: stopped
+          ignore_errors: true
+
+        - name: Remove the VM
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          microsoft.hyperv.hv_vm:
+            name: "{{ vm_name }}"
+            state: absent
+
+        - name: Remove the differencing disk file
+          delegate_to: "{{ hyperv_target }}"
+          delegate_facts: true
+          ansible.windows.win_file:
+            path: "{{ vm_vhdx_path }}"
+            state: absent
+
+        - name: Remove the VM record from Netbox
+          delegate_to: localhost
+          netbox.netbox.netbox_virtual_machine:
+            netbox_url: "{{ lookup('env', 'NETBOX_API') }}"
+            netbox_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+            validate_certs: false
+            data:
+              name: "{{ vm_name }}"
+            state: absent
 
     - name: Skip hosts that are neither staged nor pending decommission
       when: status.value not in ['staged', 'decommissioning']
