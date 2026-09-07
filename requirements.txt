@@ -4,3 +4,4 @@ pywinrm                # WinRM connection plugin (microsoft.hyperv)
 pypsrp                 # PSRP connection plugin (microsoft.hyperv)
 requests-ntlm          # NTLM auth for pywinrm
 xmltodict              # WinRM XML/SOAP parsing (pywinrm)
+pytz

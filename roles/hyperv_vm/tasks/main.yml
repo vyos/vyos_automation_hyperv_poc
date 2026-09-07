@@ -133,12 +133,12 @@
           delegate_to: "{{ hyperv_target }}"
           delegate_facts: true
           ansible.windows.win_stat:
-            path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+            path: "{{ hostvars[hyperv_target]['custom_fields']['golden_vhdx_path'] }}"
           register: golden_image
 
         - name: Fail early if golden image is missing
           ansible.builtin.fail:
-            msg: "Golden image not found on {{ hyperv_target }}: {{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+            msg: "Golden image not found on {{ hyperv_target }}: {{ hostvars[hyperv_target]['custom_fields']['golden_vhdx_path'] }}"
           when: not golden_image.stat.exists
 
         - name: Confirm the seed.iso is present on the Hyper-V host
@@ -162,7 +162,7 @@
             path: "{{ vm_vhdx_path }}"
             state: present
             vhd_type: Differencing
-            parent_path: "{{ hostvars[hyperv_target]['golden_vhdx_path'] }}"
+            parent_path: "{{ hostvars[hyperv_target]['custom_fields']['golden_vhdx_path'] }}"
 
         - name: Create the base VM
           delegate_to: "{{ hyperv_target }}"

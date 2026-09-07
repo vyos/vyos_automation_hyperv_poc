@@ -15,6 +15,7 @@ device_query_filters:
 vm_query_filters:
   - status: active
   - status: staged
+  - status: decommissioning
 
 group_by:
   - tags
@@ -24,6 +25,8 @@ group_by:
 
 compose:
   ansible_host: primary_ip4.ip
+  netbox_id: id
+  netbox_name: name
 
 rename_variables:
   - pattern: serial

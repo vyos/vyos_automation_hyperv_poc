@@ -1,7 +1,7 @@
 ---
 # Which inventory host actually executes the Hyper-V/WinRM tasks.
 # Override per-environment if you ever have more than one Hyper-V host.
-hyperv_target: first_hv
+hyperv_target: hypervisor   # must match the Netbox device's actual name
 
 # Base paths on the Hyper-V host and locally for build artifacts.
 hyperv_vm_base_dir: "D:\\VirtualDisk"

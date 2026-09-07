@@ -1,26 +1,25 @@
 ---
-- name: Wait for appliance reachability
-  hosts: localhost
+- name: Configure appliance(s)
+  hosts: platforms_vyos
   gather_facts: false
-  tasks:
-    - name: Poll SSH on target
-      wait_for:
-        host: "{{ hostvars[target_host].ansible_host }}"
+
+  pre_tasks:
+    - name: Wait for SSH reachability
+      delegate_to: localhost
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
         port: 22
         delay: 15
         timeout: 300
 
-- name: Bootstrap and configure appliance
-  hosts: "{{ target_host }}"
-  gather_facts: false
   roles:
     - vyos_common
     - vyos_firewall
     - role: vyos_edge_router
-      when: config_context.vyos.role == 'edge_router'
+      when: vyos.role == 'edge_router'
     - role: vyos_dual_wan
-      when: config_context.vyos.dual_wan | default(false)
+      when: vyos.dual_wan | default(false)
     - role: vyos_ipsec_vpn
-      when: config_context.vyos.ipsec_vpn is defined
+      when: vyos.ipsec_vpn is defined
     - role: vyos_ha
-      when: config_context.vyos.ha_pair | default(false)
+      when: vyos.ha_pair | default(false)
