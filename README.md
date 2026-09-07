@@ -1,93 +1,149 @@
-# Ansible Network Automation
+# vyos-hyperv-automation (POC)
 
+Proof-of-concept pipeline for automating the lifecycle of VyOS network
+appliances running as Hyper-V VMs: provisioning the VM, and configuring it
+according to its business function (edge router, firewall, etc.), with
+Netbox as the single source of truth for device data.
 
+## Status
 
-## Getting started
+This is a proof of concept. Several things are deliberately simplified for
+now and called out explicitly below — see **Known limitations**.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Architecture
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+The pipeline is split into two independent stages, each its own playbook,
+each independently triggerable:
 
-## Add your files
+1. **Provision / deprovision the VM** (`site/hyperv_vm.yml`)
+   Creates (or removes) the Hyper-V VM from a golden VyOS image, attaches a
+   cloud-init seed ISO for Day-0 bootstrap, starts it, waits for SSH to come
+   up, and marks the device `active` in Netbox.
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+2. **Configure the appliance** (`site/vyos_configure.yml`)
+   Applies Day-1 configuration over SSH (`network_cli`) using the
+   `vyos.vyos` resource modules, driven by the device's role and Config
+   Context data in Netbox. Runs independently of stage 1 — reconfiguring an
+   existing appliance never touches the VM lifecycle.
+
+Netbox is the source of truth throughout: VM sizing (memory/vCPU),
+interfaces and IP addressing, business-function role, and role-specific
+configuration data (via Config Context / Local Context Data) all come from
+Netbox, not hardcoded playbook values or manually maintained inventory
+files.
+
+### Day-0 / Day-1 split
+
+- **Day-0** (cloud-init, baked into the seed ISO at provision time):
+  hostname, minimal management interface, initial credentials. This is
+  what gets the VM to a state where Ansible can reach it at all.
+- **Day-1** (`vyos_configure.yml`, over SSH): everything else — full
+  interface set, firewall, routing, NAT, VPN, HA, depending on role.
+
+## Repo structure
 
 ```
-cd existing_repo
-git remote add origin https://mywizard-saas-devops-mt.accenture.com/6785345201Quality_Engineering_ANZ-7055/se-sandbox/ansible-network-automation.git
-git branch -M main
-git push -uf origin main
+.
+├── ansible.cfg
+├── requirements.yaml       # Ansible collections
+├── requirements.txt        # Python packages the collections' connection
+│                           # plugins need at runtime (not auto-installed
+│                           # by ansible-galaxy — see note below)
+├── inventory/
+│   └── netbox.yml           # dynamic inventory via netbox.netbox.nb_inventory
+├── group_vars/
+│   ├── device_roles_hypervisor.yml   # WinRM/PSRP connection vars
+│   └── platforms_vyos.yml            # network_cli connection vars
+├── roles/
+│   ├── hyperv_vm/           # provision/deprovision the VM (WinRM → Hyper-V)
+│   ├── vyos_common/         # hostname, interfaces, addressing — every appliance
+│   ├── vyos_edge_router/    # WAN, default route, NAT masquerade
+│   ├── vyos_dual_wan/       # (scaffolded, not yet implemented)
+│   ├── vyos_firewall/       # (scaffolded, not yet implemented)
+│   ├── vyos_ha/             # (scaffolded, not yet implemented)
+│   └── vyos_ipsec_vpn/      # (scaffolded, not yet implemented)
+└── site/
+    ├── hyperv_vm.yml         # stage 1 playbook
+    └── vyos_configure.yml    # stage 2 playbook
 ```
 
-## Integrate with your tools
+## Prerequisites
 
-- [ ] [Set up project integrations](https://mywizard-saas-devops-mt.accenture.com/6785345201Quality_Engineering_ANZ-7055/se-sandbox/ansible-network-automation/-/settings/integrations)
+- Python 3.x with `pip`
+- A Hyper-V host reachable over WinRM (HTTPS, port 5986), with a golden
+  VyOS image already present
+- A Netbox instance with devices/VMs modeled, and an API token
+- SSH reachability from the runner to provisioned VyOS appliances
 
-## Collaborate with your team
+## Setup
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+```bash
+pip install -r requirements.txt
+ansible-galaxy collection install -r requirements.yaml
+```
 
-## Test and Deploy
+`requirements.txt` deliberately lists Python packages that specific
+collections' connection plugins need at runtime (e.g. `pywinrm`/`pypsrp`
+for `microsoft.hyperv`'s WinRM/PSRP plugins). `ansible-galaxy` only
+installs collection content — it does not read or install a collection's
+Python dependencies, even when a collection ships its own
+`requirements.txt` internally. Those have to be discovered and listed here
+by hand.
 
-Use the built-in continuous integration in GitLab.
+## Required environment variables
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+| Variable | Used by |
+|---|---|
+| `NETBOX_API` | inventory plugin, `hyperv_vm` role's Netbox status update |
+| `NETBOX_TOKEN` | same |
+| `HYPERV_ADMIN_PASSWORD` | `group_vars/device_roles_hypervisor.yml` |
 
-***
+None of these are stored in the repo. See **Known limitations** re:
+credential handling.
 
-# Editing this README
+## Running locally
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+# Provision (or deprovision) a VM
+ansible-playbook -i inventory/netbox.yml site/hyperv_vm.yml \
+  --forks 1 \
+  -e "vm_name=<name>" -e "appliance_state=present"
 
-## Suggestions for a good README
+# Configure an appliance
+ansible-playbook -i inventory/netbox.yml site/vyos_configure.yml \
+  -e "target_host=<name>"
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+`--forks 1` on the Hyper-V play is not optional — see the WinRM note
+below.
 
-## Name
-Choose a self-explaining name for your project.
+## Known limitations (demo scope)
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+- **No dynamic credential issuance.** SSH access to VyOS appliances and
+  WinRM access to the Hyper-V host both use static, pre-shared credentials
+  for this POC. A production version should issue short-lived
+  credentials per instance (e.g. via HashiCorp Vault) rather than reusing
+  one static credential across the fleet.
+- **WinRM reliability.** The Hyper-V provisioning leg communicates over
+  WinRM, which has shown intermittent connection resets against the
+  current lab host under concurrent load. `--forks 1` and idempotent,
+  re-runnable tasks are the current mitigation. This is a network/host
+  issue, not a bug in this pipeline's tasks — confirmed by reproducing
+  identical failures across multiple independent client libraries
+  (Terraform's provider, raw `pywinrm`, `pypsrp`, and Ansible's own WinRM
+  connection plugin).
+- **Single Hyper-V host.** `hyperv_target` defaults to one host; no
+  load-spreading logic across multiple hypervisors yet.
+- **No formal change management.** Requests are lodged by directly running
+  the relevant job with the appropriate parameters. There is currently no
+  separate request/approval step upstream of execution.
+- **Terraform is not used.** An earlier iteration of this pipeline used
+  Terraform (`taliesins/hyperv` provider) for VM provisioning. This was
+  descoped in favor of Ansible end-to-end (`microsoft.hyperv`) for a
+  single, consistent tool and better idempotency around partial failures.
+- **Roles beyond `vyos_edge_router` are scaffolded but not implemented**
+  (`vyos_firewall`, `vyos_dual_wan`, `vyos_ha`, `vyos_ipsec_vpn`).
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## Rundeck integration
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+_To be documented._
