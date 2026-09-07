@@ -1,0 +1,15 @@
+#cloud-config
+
+vyos_config_commands:
+  - set system host-name '{{ vm_name }}'
+  - delete interfaces ethernet eth0 address
+{% for interface in interfaces %}
+{%     if interface.name == 'eth0' %}
+{%         for ip in interface.ip_addresses  %}
+  - set interfaces ethernet {{ interface.name }} address '{{ ip.address }}'
+{%         endfor %}
+{%     endif %}
+{% endfor %}
+  - set interfaces ethernet eth0 description 'Management'
+  - set service ssh port '22'
+  - set system login user vyos authentication plaintext-password 'vyos'

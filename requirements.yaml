@@ -1,0 +1,9 @@
+---
+collections:
+  - name: community.general
+    # version: 9.3.0
+  - name: netbox.netbox
+  - name: microsoft.hyperv
+  - name: https://github.com/vyos/vyos.vyos.git
+    type: git
+    version: main

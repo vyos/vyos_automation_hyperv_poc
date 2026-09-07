@@ -1,0 +1,21 @@
+---
+# Which inventory host actually executes the Hyper-V/WinRM tasks.
+# Override per-environment if you ever have more than one Hyper-V host.
+hyperv_target: first_hv
+
+# Base paths on the Hyper-V host and locally for build artifacts.
+hyperv_vm_base_dir: "D:\\VirtualDisk"
+seed_build_base_dir: "/tmp"
+
+# Netbox API settings for the status-update task at the end of provisioning.
+netbox_status_update_enabled: true
+
+# Common VyOS appliance spec — most instances share this shape, so these are
+# only used when Netbox doesn't specify a value for that particular VM.
+# Override per-device in Netbox (Config Context / the VM's own fields) when
+# a specific instance genuinely needs something different.
+vyos_default_memory_mb: 2048
+vyos_default_vcpus: 2
+vyos_mgmt_switch: "Management-SW"
+vyos_wan_switch: "Mellanox ConnectX-5 Adapter #2 - Virtual Switch"
+vyos_disk_controller_type: "SCSI"

@@ -1,0 +1,32 @@
+---
+plugin: netbox.netbox.nb_inventory
+validate_certs: False
+config_context: True
+flatten_config_context: True
+interfaces: True
+dns_name: True
+fetch_all: False
+
+device_query_filters:
+  - status: active
+  - status: staged
+  - status: offline
+
+vm_query_filters:
+  - status: active
+  - status: staged
+
+group_by:
+  - tags
+  - status
+  - device_roles
+  - platforms
+
+compose:
+  ansible_host: primary_ip4.ip
+
+rename_variables:
+  - pattern: serial
+    repl: netbox_serial
+  - pattern: tags
+    repl: netbox_tags

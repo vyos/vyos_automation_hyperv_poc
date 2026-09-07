@@ -1,0 +1,8 @@
+---
+- name: Wait for VM SSH up
+  delegate_to: localhost
+  ansible.builtin.wait_for:
+    host: "{{ vm_management_ip }}"
+    port: 22
+    timeout: 300
+  listen: "vm started"

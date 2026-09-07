@@ -1,0 +1,34 @@
+---
+- name: Set WAN interface to DHCP client
+  vyos.vyos.vyos_l3_interfaces:
+    config:
+      - name: "{{ vyos_wan_interface_name }}"
+        ipv4:
+          - address: dhcp
+    state: merged
+  when: vyos_wan_dhcp
+
+- name: Set static default route via WAN gateway
+  vyos.vyos.vyos_static_routes:
+    config:
+      - address_families:
+          - afi: ipv4
+            routes:
+              - dest: 0.0.0.0/0
+                next_hops:
+                  - forward_router_address: "{{ vyos_wan_gateway }}"
+    state: merged
+  when: not vyos_wan_dhcp and vyos_wan_gateway | length > 0
+
+- name: Enable outbound NAT masquerade on the WAN interface
+  vyos.vyos.vyos_nat:
+    config:
+      source:
+        rules:
+          - number: "{{ vyos_nat_rule_number }}"
+            outbound_interface:
+              name: "{{ vyos_wan_interface_name }}"
+            translation:
+              address: masquerade
+    state: merged
+  when: vyos_nat_enabled

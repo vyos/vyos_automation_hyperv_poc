@@ -1,0 +1,9 @@
+---
+# Which interface carries the management address (used for description/enable
+# defaults below; Netbox's own interface list drives what actually gets built).
+vyos_mgmt_interface_name: eth0
+
+# Optional system-wide settings. Left empty by default — only applied if
+# populated (via Config Context) so a bare demo device doesn't need them set.
+vyos_ntp_servers: []          # e.g. ["0.pool.ntp.org", "1.pool.ntp.org"]
+vyos_syslog_host: ""          # e.g. "10.10.10.5"

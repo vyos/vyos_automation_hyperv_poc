@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  description: Provisions a VyOS VM on Hyper-V from a golden differencing disk, seeded via cloud-init, and marks it active in Netbox once reachable.
+  author: d368409
+dependencies: []
+collections:
+  - netbox.netbox
+  - microsoft.hyperv

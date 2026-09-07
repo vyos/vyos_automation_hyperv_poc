@@ -1,0 +1,60 @@
+---
+- name: Set hostname
+  vyos.vyos.vyos_hostname:
+    config:
+      hostname: "{{ vm_name }}"
+    state: merged
+
+# Build the vyos_interfaces config list from Netbox's interface data, one
+# entry per interface, without needing a template file for something this
+# structurally simple.
+- name: Build interface enable/description config from Netbox data
+  ansible.builtin.set_fact:
+    vyos_interfaces_config: "{{ vyos_interfaces_config | default([]) + [{
+        'name': item.name,
+        'enabled': true,
+        'description': item.description | default(item.name)
+      }] }}"
+  loop: "{{ vm_interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Apply interface enable/description state
+  vyos.vyos.vyos_interfaces:
+    config: "{{ vyos_interfaces_config }}"
+    state: merged
+
+# Same pattern for L3 addressing — only interfaces that actually have an
+# IP assigned in Netbox get an ipv4 block; DHCP-addressed interfaces (no
+# Netbox IP) are skipped here and left for the appliance-specific role.
+- name: Build L3 addressing config from Netbox data
+  ansible.builtin.set_fact:
+    vyos_l3_interfaces_config: "{{ vyos_l3_interfaces_config | default([]) + [{
+        'name': item.name,
+        'ipv4': item.ip_addresses | map(attribute='address') | map('community.general.dict_kv', 'address') | list
+      }] }}"
+  loop: "{{ vm_interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.ip_addresses | default([]) | length > 0
+
+- name: Apply L3 addressing
+  vyos.vyos.vyos_l3_interfaces:
+    config: "{{ vyos_l3_interfaces_config | default([]) }}"
+    state: merged
+  when: vyos_l3_interfaces_config is defined
+
+- name: Configure NTP servers
+  vyos.vyos.vyos_ntp_global:
+    config:
+      servers: "{{ vyos_ntp_servers | map('community.general.dict_kv', 'address') | list }}"
+    state: merged
+  when: vyos_ntp_servers | length > 0
+
+- name: Configure remote syslog
+  vyos.vyos.vyos_logging_global:
+    config:
+      hosts:
+        - hostname: "{{ vyos_syslog_host }}"
+    state: merged
+  when: vyos_syslog_host | length > 0

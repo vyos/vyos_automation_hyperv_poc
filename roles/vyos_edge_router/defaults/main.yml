@@ -1,0 +1,6 @@
+---
+vyos_wan_interface_name: eth1
+vyos_wan_dhcp: true # set false and supply vyos_wan_gateway for a static WAN
+vyos_wan_gateway: ""
+vyos_nat_enabled: true
+vyos_nat_rule_number: 100
