@@ -1,8 +1,6 @@
 ---
 - name: Manage VyOS appliance VM lifecycle
-  hosts: hypervisor
+  hosts: platform_vyos
   gather_facts: false
-  vars:
-    vm_state: "{{ appliance_state | default('present') }}"  # present | absent, from Rundeck job option
   roles:
     - role: hyperv_vm
