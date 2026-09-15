@@ -105,17 +105,17 @@
             dest: "{{ seed_build_dir }}/user-data"
             mode: "0600"
 
-        # - name: Build the seed ISO (volume label CIDATA)
-        #   delegate_to: localhost
-        #   ansible.builtin.command:
-        #     cmd: >-
-        #       cloud-localds {{ seed_build_dir }}/seed.iso
-        #       {{ seed_build_dir }}/user-data {{ seed_build_dir }}/meta-data
+        - name: Build the seed ISO (volume label CIDATA)
+          delegate_to: localhost
+          ansible.builtin.command:
+            cmd: >-
+              cloud-localds {{ seed_build_dir }}/seed.iso
+              {{ seed_build_dir }}/user-data {{ seed_build_dir }}/meta-data
 
         - name: DEBUG - print hypervisor hostvars
           ansible.builtin.debug:
             var: hostvars['hypervisor']
-            
+
         - name: Ensure VM directory exists on Hyper-V host
           delegate_to: "{{ hyperv_target }}"
           remote_user: "{{ hostvars[hyperv_target]['ansible_user'] }}"
