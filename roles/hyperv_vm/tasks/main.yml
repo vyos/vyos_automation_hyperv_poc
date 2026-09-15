@@ -21,6 +21,15 @@
 
         - name: Stop the VM
           delegate_to: "{{ hyperv_target }}"
+          vars: &hv_conn_vars
+            ansible_connection: "{{ hostvars[hyperv_target]['ansible_connection'] }}"
+            ansible_user: "{{ hostvars[hyperv_target]['ansible_user'] }}"
+            ansible_password: "{{ hostvars[hyperv_target]['ansible_password'] }}"
+            ansible_winrm_transport: "{{ hostvars[hyperv_target]['ansible_winrm_transport'] }}"
+            ansible_winrm_scheme: "{{ hostvars[hyperv_target]['ansible_winrm_scheme'] }}"
+            ansible_winrm_server_cert_validation: "{{ hostvars[hyperv_target]['ansible_winrm_server_cert_validation'] }}"
+            ansible_winrm_read_timeout_sec: "{{ hostvars[hyperv_target]['ansible_winrm_read_timeout_sec'] }}"
+            ansible_winrm_operation_timeout_sec: "{{ hostvars[hyperv_target]['ansible_winrm_operation_timeout_sec'] }}"
           delegate_facts: true
           microsoft.hyperv.hv_vm_state:
             name: "{{ vm_name }}"
@@ -29,6 +38,7 @@
 
         - name: Remove the VM
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_vm:
             name: "{{ vm_name }}"
@@ -36,6 +46,7 @@
 
         - name: Remove the differencing disk file
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           ansible.windows.win_file:
             path: "{{ vm_vhdx_path }}"
@@ -111,6 +122,7 @@
 
         - name: Ensure VM directory exists on Hyper-V host
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           ansible.windows.win_file:
             path: "{{ vm_dir }}"
@@ -118,6 +130,7 @@
 
         - name: Copy the seed ISO to Hyper-V host
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           ansible.windows.win_copy:
             src: "{{ seed_build_dir }}/seed.iso"
@@ -131,6 +144,7 @@
 
         - name: Confirm the golden image is present on the Hyper-V host
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           ansible.windows.win_stat:
             path: "{{ hostvars[hyperv_target]['custom_fields']['golden_vhdx_path'] }}"
@@ -143,6 +157,7 @@
 
         - name: Confirm the seed.iso is present on the Hyper-V host
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           ansible.windows.win_stat:
             path: "{{ vm_dir }}\\seed.iso"
@@ -157,6 +172,7 @@
 
         - name: Create differencing disk from the golden image
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_vhd:
             path: "{{ vm_vhdx_path }}"
@@ -166,6 +182,7 @@
 
         - name: Create the base VM
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_vm:
             name: "{{ vm_name }}"
@@ -175,6 +192,7 @@
 
         - name: Set vCPU count
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_processor:
             name: "{{ vm_name }}"
@@ -182,6 +200,7 @@
 
         - name: Attach the differencing disk
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_hard_disk:
             vm_name: "{{ vm_name }}"
@@ -191,6 +210,7 @@
 
         - name: Add a blank DVD drive
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_dvd_drive:
             vm_name: "{{ vm_name }}"
@@ -199,6 +219,7 @@
 
         - name: Attach and mount the seed ISO
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_dvd_drive:
             vm_name: "{{ vm_name }}"
@@ -211,6 +232,7 @@
         # or Hyper-V creates a second, unnamed adapter instead of reusing it.
         - name: Connect eth0 to management switch
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_network_adapter:
             vm_name: "{{ vm_name }}"
@@ -221,6 +243,7 @@
         # instead of adding a second one.
         - name: Connect eth1 to the external switch
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_network_adapter:
             name: "eth1"
@@ -232,6 +255,7 @@
         # from the differencing disk.
         - name: Configure Secure Boot (off) and boot order for Gen2 VM
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_vm_boot:
             name: "{{ vm_name }}"
@@ -242,6 +266,7 @@
 
         - name: Start the VM
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_vm_state:
             name: "{{ vm_name }}"
@@ -253,6 +278,7 @@
 
         - name: Eject the seed ISO on the Hyper-V host
           delegate_to: "{{ hyperv_target }}"
+          vars: *hv_conn_vars
           delegate_facts: true
           microsoft.hyperv.hv_dvd_drive:
             vm_name: "{{ vm_name }}"
