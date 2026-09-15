@@ -1,6 +1,6 @@
 ---
 - name: Manage VyOS appliance VM lifecycle
-  hosts: platform_vyos
+  hosts: platforms_vyos
   gather_facts: false
   roles:
     - role: hyperv_vm
